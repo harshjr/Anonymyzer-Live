@@ -1,0 +1,10 @@
+{
+  "input": "Red Herring Prospectus.docx",
+  "output": "Red Herring Prospectus_redacted.docx",
+  "counts": {
+    "PERSON": 268,
+    "ADDRESS": 403,
+    "EMAIL": 52,
+    "PHONE": 31
+  }
+}
