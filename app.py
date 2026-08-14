@@ -41,65 +41,68 @@ def root():
         "status": "running",
         "service": "PII Anonymizer"
     }
-engine = PIIEngine()
-mapper = SyntheticMapper()
+
 
 @app.post("/anonymize")
-async def anonymize_document(file: UploadFile = File(...)):
-    try:
-        suffix = Path(file.filename).suffix.lower()
+async def anonymize_document(
+    file: UploadFile = File(...)
+):
 
-        if suffix not in [".txt", ".docx", ".pdf"]:
-            raise HTTPException(
-                status_code=400,
-                detail="Only TXT, DOCX and PDF files are supported"
-            )
+    suffix = Path(file.filename).suffix.lower()
 
-        unique_id = str(uuid.uuid4())
-
-        input_path = (
-            UPLOAD_DIR /
-            f"{unique_id}_{file.filename}"
+    if suffix not in [".txt", ".docx", ".pdf"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Only TXT, DOCX and PDF files are supported"
         )
 
-        output_path = (
-            OUTPUT_DIR /
-            f"{Path(file.filename).stem}_redacted{suffix}"
+    unique_id = str(uuid.uuid4())
+
+    input_path = (
+        UPLOAD_DIR /
+        f"{unique_id}_{file.filename}"
+    )
+
+    output_path = (
+        OUTPUT_DIR /
+        f"{Path(file.filename).stem}_redacted{suffix}"
+    )
+
+    with open(input_path, "wb") as buffer:
+        shutil.copyfileobj(
+            file.file,
+            buffer
         )
 
-        with open(input_path, "wb") as buffer:
-            shutil.copyfileobj(
-                file.file,
-                buffer
-            )
+    engine = PIIEngine()
+    mapper = SyntheticMapper()
 
-        if suffix == ".txt":
-            process_txt(
-                input_path,
-                output_path,
-                engine,
-                mapper
-            )
-
-        elif suffix == ".docx":
-            process_docx(
-                input_path,
-                output_path,
-                engine,
-                mapper
-            )
-
-        elif suffix == ".pdf":
-            process_pdf(
-                input_path,
-                output_path,
-                engine,
-                mapper
-            )
-    except Exception as e:
-        print("ERROR:", str(e))
-        return FileResponse(
-            str(output_path),
-            filename=output_path.name,
-            media_type="application/octet-stream"
+    if suffix == ".txt":
+        process_txt(
+            input_path,
+            output_path,
+            engine,
+            mapper
         )
+
+    elif suffix == ".docx":
+        process_docx(
+            input_path,
+            output_path,
+            engine,
+            mapper
+        )
+
+    elif suffix == ".pdf":
+        process_pdf(
+            input_path,
+            output_path,
+            engine,
+            mapper
+        )
+
+    return FileResponse(
+        str(output_path),
+        filename=output_path.name,
+        media_type="application/octet-stream"
+    )
