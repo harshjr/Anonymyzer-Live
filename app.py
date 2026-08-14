@@ -58,6 +58,18 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 
 @app.get("/")
 def root():
+    index_file = Path(__file__).parent / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file, media_type="text/html")
+    return {
+        "status": "online",
+        "service": "PII Document Anonymizer API",
+        "supported_formats": [".txt", ".docx", ".pdf"]
+    }
+
+
+@app.get("/api")
+def api_status():
     return {
         "status": "online",
         "service": "PII Document Anonymizer API",

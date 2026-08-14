@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PII Document Anonymizer</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --card-bg: #1e293b;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #334155;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
+        }
+
+        p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-bottom: 24px;
+        }
+
+        .dropzone {
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            padding: 32px 16px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background-color 0.2s;
+        }
+
+        .dropzone:hover,
+        .dropzone.dragover {
+            border-color: var(--primary);
+            background-color: rgba(59, 130, 246, 0.05);
+        }
+
+        .btn {
+            width: 100%;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: background-color 0.2s;
+        }
+
+        .btn:hover {
+            background-color: var(--primary-hover);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .status {
+            margin-top: 16px;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="card">
+        <h1>PII Document Anonymizer</h1>
+        <p>Upload a <code>.docx</code>, <code>.pdf</code>, or <code>.txt</code> file to redact sensitive information.
+        </p>
+
+        <div class="dropzone" id="dropzone">
+            <input type="file" id="fileInput" accept=".txt,.docx,.pdf" style="display: none;" />
+            <span id="fileName">Click or drag & drop a document here</span>
+        </div>
+
+        <button class="btn" id="anonymizeBtn" disabled>Anonymize Document</button>
+        <div class="status" id="statusMessage"></div>
+    </div>
+
+    <script>
+        // Uses current origin if served by FastAPI, or fallback to Railway production URL
+        const API_BASE_URL = (window.location.origin && window.location.origin.startsWith("http"))
+            ? window.location.origin
+            : "https://anonymyzer-live-production.up.railway.app";
+
+        const dropzone = document.getElementById("dropzone");
+        const fileInput = document.getElementById("fileInput");
+        const fileName = document.getElementById("fileName");
+        const anonymizeBtn = document.getElementById("anonymizeBtn");
+        const statusMessage = document.getElementById("statusMessage");
+
+        let selectedFile = null;
+
+        dropzone.addEventListener("click", () => fileInput.click());
+
+        fileInput.addEventListener("change", (e) => {
+            if (e.target.files.length > 0) {
+                selectedFile = e.target.files[0];
+                fileName.textContent = selectedFile.name;
+                anonymizeBtn.disabled = false;
+            }
+        });
+
+        // Drag and drop handlers
+        dropzone.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            dropzone.classList.add("dragover");
+        });
+        dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+        dropzone.addEventListener("drop", (e) => {
+            e.preventDefault();
+            dropzone.classList.remove("dragover");
+            if (e.dataTransfer.files.length > 0) {
+                selectedFile = e.dataTransfer.files[0];
+                fileInput.files = e.dataTransfer.files;
+                fileName.textContent = selectedFile.name;
+                anonymizeBtn.disabled = false;
+            }
+        });
+
+        anonymizeBtn.addEventListener("click", async () => {
+            if (!selectedFile) return;
+
+            anonymizeBtn.disabled = true;
+            statusMessage.style.color = "var(--text-muted)";
+            statusMessage.textContent = "Processing and redacting PII...";
+
+            const formData = new FormData();
+            formData.append("file", selectedFile);
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/anonymize`, {
+                    method: "POST",
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    const errData = await response.json().catch(() => null);
+                    throw new Error(errData?.detail || `Error: ${response.statusText}`);
+                }
+
+                // Receive binary file stream
+                const blob = await response.blob();
+
+                // Trigger browser file download
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = downloadUrl;
+
+                // Preserve original extension
+                const originalName = selectedFile.name;
+                const lastDot = originalName.lastIndexOf(".");
+                const baseName = lastDot !== -1 ? originalName.substring(0, lastDot) : originalName;
+                const ext = lastDot !== -1 ? originalName.substring(lastDot) : "";
+                a.download = `${baseName}_redacted${ext}`;
+
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(downloadUrl);
+
+                statusMessage.style.color = "#4ade80";
+                statusMessage.textContent = "Anonymization complete! File downloaded.";
+            } catch (err) {
+                statusMessage.style.color = "#f87171";
+                statusMessage.textContent = err.message;
+            } finally {
+                anonymizeBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+
+</html>
