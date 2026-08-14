@@ -39,6 +39,7 @@ import phonenumbers
 import spacy
 from faker import Faker
 from presidio_analyzer import AnalyzerEngine
+from presidio_analyzer.nlp_engine import NlpEngineProvider
 
 SUPPORTED_EXTENSIONS = {".txt", ".docx", ".pdf"}
 
@@ -215,7 +216,12 @@ class PIIEngine:
             download("en_core_web_sm")
             self.nlp = spacy.load("en_core_web_sm")
 
-        self.analyzer = AnalyzerEngine()
+        nlp_configuration = {
+            "nlp_engine_name": "spacy",
+            "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+        }
+        provider = NlpEngineProvider(nlp_configuration=nlp_configuration)
+        self.analyzer = AnalyzerEngine(nlp_engine=provider.create_engine())
         self.min_score = min_score
         self.debug = debug
 
