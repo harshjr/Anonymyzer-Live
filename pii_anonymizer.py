@@ -208,7 +208,13 @@ class PIIEngine:
     with spaCy NER and Presidio Analyzer.
     """
     def __init__(self, min_score: float = 0.55, debug: bool = False):
-        self.nlp = spacy.load("en_core_web_sm")
+        try:
+            self.nlp = spacy.load("en_core_web_sm")
+        except OSError:
+            from spacy.cli import download
+            download("en_core_web_sm")
+            self.nlp = spacy.load("en_core_web_sm")
+
         self.analyzer = AnalyzerEngine()
         self.min_score = min_score
         self.debug = debug
