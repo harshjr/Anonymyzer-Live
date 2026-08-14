@@ -1,58 +1,213 @@
-# PII Anonymizer v2
+# PII Document Anonymizer
 
-Production-oriented baseline for TXT, DOCX and selectable-text PDF files.
+A lightweight, robust Python tool that detects personally identifiable information (PII), replaces it with consistent synthetic fake data, and outputs sanitized documents while preserving document structures and formatting.
 
-## Key v2 improvement
+Supports **Plain Text (`.txt`)**, **Microsoft Word (`.docx`)**, and **Text-based PDF (`.pdf`)** documents.
 
-DOCX processing now works at the OOXML (`word/*.xml`) level instead of assuming
-all visible text is represented by `python-docx` paragraph runs.
+---
 
-This means it can detect text split across Word runs and text inside hyperlinks,
-tables, headers and footers much more reliably.
+## 🎯 Architecture & Design Rationale
 
-## Install
+Rather than relying purely on regex or purely on heavy transformer models, the system uses a **Hybrid Detection Strategy**:
+- **Deterministic Rules & Algorithmic Validators**: Used for structured, high-precision entities (e.g. Luhn algorithm for Credit Cards, `phonenumbers` for phone formats, `ipaddress` validation for IPv4).
+- **Statistical Named Entity Recognition (NER)**: spaCy (`en_core_web_sm`) and Microsoft Presidio for contextual entities (Person, Organization/Company, Physical Address).
+- **Generic Edge-Case Normalization**: Case normalization for ALL-CAPS text blocks commonly found in legal documents (e.g. prospectus promoter lists) and delimiter boundary splitting.
+- **Consistent Synthetic Replacement**: A 1-to-1 mapping via `Faker` ensuring the same entity always receives the exact same synthetic replacement throughout the document.
 
+```
+                  +-----------------------------------+
+                  |          Input Document           |
+                  |        (.txt / .docx / .pdf)      |
+                  +-----------------+-----------------+
+                                    |
+                                    v
+                  +-----------------+-----------------+
+                  |      Text & Structure Parsing     |
+                  | (XML nodes, tables, instrText)    |
+                  +-----------------+-----------------+
+                                    |
+                                    v
++-----------------------------------+-----------------------------------+
+|                     Hybrid Detection Pipeline                        |
+|  - Email (Regex)                 - SSN (Contextual Regex)             |
+|  - Phone (Phonenumbers library)  - Date of Birth (Pattern + Keywords) |
+|  - Credit Card (Luhn validator)  - Person / Org / Address (spaCy NER) |
+|  - IPv4 (ipaddress validator)    - Case normalization for ALL-CAPS    |
++-----------------------------------+-----------------------------------+
+                                    |
+                                    v
+                  +-----------------+-----------------+
+                  |  Consistent Synthetic Replacement |
+                  |   (1-to-1 Faker-backed dictionary)|
+                  +-----------------+-----------------+
+                                    |
+                                    v
+                  +-----------------+-----------------+
+                  |      Document Reconstruction      |
+                  |  - DOCX: XML runs & w:instrText   |
+                  |  - PDF: PyMuPDF true redaction    |
+                  +-----------------+-----------------+
+                                    |
+                                    v
+                  +-----------------+-----------------+
+                  |   Post-Redaction Validation Pass  |
+                  |      (PASS / WARNING reporting)   |
+                  +-----------------------------------+
+```
+
+---
+
+## 📋 Supported PII Types
+
+| PII Type | Primary Detection Mechanism | Synthetic Generator |
+| :--- | :--- | :--- |
+| **Full Names** | spaCy NER (`PERSON`) + ALL-CAPS case normalization | Realistic fake name (`Faker.name()`) |
+| **Email Addresses** | Deterministic Email Regex | Fake email (`Faker.email()`) |
+| **Phone Numbers** | Regex + Google `phonenumbers` validation | Fake phone preserving country prefix (+91 / +1) |
+| **Company / Organization** | spaCy NER (`ORG`) | Fake company name (`Faker.company()`) |
+| **Physical Addresses** | spaCy NER (`GPE`/`LOC`/`FAC`) + Presidio (protected geographic entities) | Fake street address (`Faker.address()`) |
+| **Social Security Numbers** | Format-validated SSN Regex | Fake SSN (`Faker.ssn()`) |
+| **Credit Card Numbers** | Regex + Luhn Algorithm checksum | Fake Luhn-valid credit card (`Faker.credit_card_number()`) |
+| **Date of Birth** | Date regex patterns with contextual triggers (`DOB`, `born`, `birth date`) | Fake birth date (`Faker.date_of_birth()`) |
+| **IP Addresses** | Regex + `ipaddress.IPv4Address` validation | Fake public IPv4 (`Faker.ipv4_public()`) |
+
+---
+
+## 📑 Document Structure Handling
+
+### Microsoft Word (`.docx`)
+Business and legal documents rarely store text in simple paragraph sequences. The DOCX engine operates at the XML level:
+- **Tables & Nested Tables**: Traverses all rows (`w:tr`) and cells (`w:tc`) recursively.
+- **Run Splitting**: When an entity is split across multiple Word runs (e.g. `<w:t>Rashi </w:t><w:t>Patil</w:t>`), offsets are mapped across text nodes and formatted run boundaries are preserved.
+- **Hyperlinks & Field Codes**: Sanitizes `<w:instrText>` nodes containing `HYPERLINK "mailto:..."` and `.rels` targets so original email addresses and URLs do not linger inside document metadata.
+- **Headers, Footers & Text Boxes**: Traverses `word/header*.xml`, `word/footer*.xml`, and shape text boxes (`<w:txbxContent>`, `<v:textbox>`, `<a:t>`).
+
+### Portable Document Format (`.pdf`)
+- Applies true PDF redaction via PyMuPDF (`add_redact_annot` + `apply_redactions()`), physically erasing the underlying text rather than drawing visual overlay boxes.
+- Scans for selectable text. If an image-only / scanned PDF is provided, emits a clear warning:
+  `"This appears to be an image/scanned PDF. OCR is not currently supported."`
+
+---
+
+## 🚀 Installation & Usage
+
+### 1. Installation
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python -m venv myenv
+source myenv/bin/activate
 pip install -r requirements.txt
 python -m spacy download en_core_web_sm
 ```
 
-## Run
-
+### 2. CLI Usage
 ```bash
-python pii_anonymizer.py input.docx
-python pii_anonymizer.py input.txt
-python pii_anonymizer.py input.pdf
+# Basic redaction (generates input_redacted.ext)
+python pii_anonymizer.py document.docx
+
+# Custom output file and random seed for repeatable fake data
+python pii_anonymizer.py input.docx -o output_redacted.docx --seed 42
+
+# Generate JSON audit report
+python pii_anonymizer.py document.pdf --report audit_report.json
+
+# Enable privacy-safe debug mode
+python pii_anonymizer.py document.txt --debug
 ```
 
-Custom output:
-
+### 3. Run Test Suite
 ```bash
-python pii_anonymizer.py input.docx -o output_redacted.docx
+python test_pii.py
 ```
 
-Optional count-only report:
+---
 
-```bash
-python pii_anonymizer.py input.docx --report report.json
-```
+## 🔍 Validation & Privacy-Safe Debugging
 
-The report never stores original PII.
+- **Post-Redaction Scanner**: After saving the document, the tool re-opens the file, traverses all structures, and runs a secondary PII detection scan to ensure de-identification quality.
+- **Privacy-Safe Logs**: Debug mode outputs detector names (`Detected EMAIL using regex`, `Detected PERSON using spaCy`) and never prints sensitive original PII into logs or reports.
 
-## Test with the supplied document
+---
 
-```bash
-python pii_anonymizer.py "Red Herring Prospectus.docx"   -o "Red Herring Prospectus_redacted.docx"   --report report.json
-```
+## ⚠️ Limitations & Future Improvements
 
-## Important limitations
+### Current Limitations
+1. **Scanned / Image-Only PDFs**: Text within bitmap scans requires OCR, which is outside the scope of this lightweight 24-hour project.
+2. **Complex Embedded Objects**: SmartArt or OLE embedded binary packages are not modified.
 
-- Scanned/image-only PDFs require OCR before reliable text PII detection.
-- DOCX content in unusual embedded objects, charts, drawings or custom XML may
-  require additional handlers.
-- A PII detector can miss entities or produce false positives. Validation is a
-  safety check, not a guarantee.
-- Do not persist the original-to-fake mapping unless it is protected by an
-  appropriate security/key-management design.
+### Future Improvements
+1. **OCR Pipeline**: Integrate Tesseract / EasyOCR for scanned PDF and image support.
+2. **Country-Specific Identifiers**: Add dedicated recognizers for Indian Aadhaar and PAN numbers.
+3. **Fine-Tuned Domain NER**: Fine-tune transformer models on financial and legal prospectus datasets for even higher entity precision.
+4. **Enhanced PDF Layout Retention**: Re-render replacement text matching original font metrics and styles.
+
+
+
+
+
+
+
+
+
+
+
+
+# PII Document Anonymizer
+
+A Python tool that detects and anonymizes personally identifiable
+information from TXT, DOCX and text-based PDF documents.
+
+## Why I built this
+
+PII is often present in support tickets, customer documents and
+business reports. Manually removing this information is time-consuming
+and error-prone.
+
+This project explores a lightweight NLP-based approach for automatically
+detecting and replacing PII while preserving document usability.
+
+## Approach
+
+The project uses a hybrid detection strategy:
+
+- Regex for structured entities
+- Presidio/spaCy for contextual entities
+- phonenumbers for phone validation
+- Faker for synthetic replacements
+
+## Supported PII
+
+- Person names
+- Email addresses
+- Phone numbers
+- Company names
+- Addresses
+- SSNs
+- Credit cards
+- Dates of birth
+- IP addresses
+
+## Supported files
+
+- TXT
+- DOCX
+- Text-based PDF
+
+## Limitations
+
+The current version does not process image-only/scanned PDFs.
+OCR would be a natural future extension.
+
+Complex Word objects such as SmartArt and some embedded objects
+may not be processed.
+
+NER-based detection can also produce false positives or miss
+ambiguous entities, so the generated document is run through
+a second validation pass.
+
+## Future improvements
+
+- OCR support
+- Better address recognition
+- Additional country-specific PII
+- Improved DOCX shape/text-box handling
+- Evaluation using a manually labelled dataset

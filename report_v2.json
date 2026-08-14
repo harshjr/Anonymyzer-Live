@@ -1,0 +1,12 @@
+{
+  "input": "Red Herring Prospectus.docx",
+  "output": "Red Herring Prospectus_redacted_v2.docx",
+  "total_entities_replaced": 2820,
+  "entity_counts": {
+    "COMPANY": 1776,
+    "PERSON": 577,
+    "ADDRESS": 327,
+    "EMAIL": 104,
+    "PHONE": 36
+  }
+}
